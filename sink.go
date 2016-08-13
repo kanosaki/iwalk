@@ -1,10 +1,10 @@
 package main
 
 import (
-	"path"
-	"os"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
 )
 
 const META_JSON_FILENAME = "meta.json"
@@ -14,10 +14,10 @@ type Sink struct {
 }
 
 type SinkDir struct {
-	Path               string `json:"-"`
+	Path               string                `json:"-"`
 	Tracks             map[string]*TrackMeta `json:"tracks"`
-	OriginPlaylistID   string `json:"origin_playlist_id"`
-	OriginPlaylistName string `json:"origin_playlist_name"`
+	OriginPlaylistID   string                `json:"origin_playlist_id"`
+	OriginPlaylistName string                `json:"origin_playlist_name"`
 }
 
 type TrackMeta struct {
@@ -68,12 +68,12 @@ func (s *Sink) openSinkDirContents(dirPath string) (*SinkDir, error) {
 
 func (s *Sink) createSinkDir(dirPath string) (*SinkDir, error) {
 	return &SinkDir{
-		Path: dirPath,
+		Path:   dirPath,
 		Tracks: make(map[string]*TrackMeta),
 	}, nil
 }
 
-func (s *SinkDir) SinkTrack(track *Track, index int) (IOAction) {
+func (s *SinkDir) SinkTrack(track *Track, index int) IOAction {
 	meta, previouslyExists := s.Tracks[string(track.TrackId)]
 	if previouslyExists {
 		// perform move

@@ -9,9 +9,9 @@ type Planner struct {
 
 func NewPlanner(lib *Library, pl *Playlist, sinkDir *SinkDir) *Planner {
 	return &Planner{
-		lib: lib,
+		lib:      lib,
 		playlist: pl,
-		sinkDir: sinkDir,
+		sinkDir:  sinkDir,
 	}
 }
 

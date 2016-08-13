@@ -20,8 +20,8 @@ func startSync(libPath, targetDir string, playlists []string) error {
 		return err
 	}
 	ctx := &SyncContext{
-		lib: itunesLib,
-		sink: sink,
+		lib:           itunesLib,
+		sink:          sink,
 		syncPlaylists: playlists,
 	}
 	return ctx.Start()

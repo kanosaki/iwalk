@@ -1,14 +1,13 @@
 package main
 
 import (
-	"os"
 	"github.com/DHowett/go-plist"
+	"os"
 	"strconv"
 	"time"
 )
 
 // from https://github.com/ericdaugherty/itunesexport-go/blob/master/library.go
-
 
 type Library struct {
 	MajorVersion        int `plist:"Major Version"`
@@ -104,7 +103,7 @@ func LoadLibrary(fileLocation string) (returnLibrary *Library, err error) {
 	return &library, err
 }
 
-func (playlist *Playlist) Tracks(library *Library) ([]Track) {
+func (playlist *Playlist) Tracks(library *Library) []Track {
 	tracks := make([]Track, 0, len(playlist.PlaylistItems))
 	for _, item := range playlist.PlaylistItems {
 		track, ok := library.Tracks[strconv.FormatInt(int64(item.TrackId), 10)]

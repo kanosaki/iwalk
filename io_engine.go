@@ -2,9 +2,9 @@ package main
 
 import (
 	"container/list"
-	"os"
 	"fmt"
 	"io"
+	"os"
 )
 
 type IOEngine struct {
@@ -57,7 +57,6 @@ type Delete struct {
 func (d *Delete) Perform() error {
 	return os.Remove(d.target)
 }
-
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
 // the same, then return success. Otherise, attempt to create a hard link
@@ -118,4 +117,3 @@ func copyFileContents(src, dst string) (err error) {
 	err = out.Sync()
 	return
 }
-

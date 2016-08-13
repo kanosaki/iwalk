@@ -2,14 +2,14 @@ package main
 
 import (
 	"flag"
-	"os"
 	"github.com/Sirupsen/logrus"
+	"os"
 )
 
 var (
 	argLibraryPath *string = flag.String("-library", "", "Path to 'iTunes Music Library.xml'")
-	argTargetPath *string = flag.String("-target", "", "Path to sync target directory")
-	argVerbose *string = flag.String("-verbose", "", "Verbose output")
+	argTargetPath  *string = flag.String("-target", "", "Path to sync target directory")
+	argVerbose     *string = flag.String("-verbose", "", "Verbose output")
 )
 
 func findLibraryPath() (string, bool) {
