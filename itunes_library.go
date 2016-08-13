@@ -85,6 +85,7 @@ func LoadLibrary(fileLocation string) (returnLibrary *Library, err error) {
 		err = pathErr
 		return
 	}
+	defer file.Close()
 
 	decoder := plist.NewDecoder(file)
 

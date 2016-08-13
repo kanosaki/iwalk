@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"github.com/Sirupsen/logrus"
 )
 
 type IOEngine struct {
 	actions *list.List
+	trashActions *list.List
 }
 
 func NewIOEngine() *IOEngine {
@@ -18,7 +20,24 @@ func NewIOEngine() *IOEngine {
 }
 
 func (e *IOEngine) Commit() error {
-
+	dryRun := *argDryRun
+	for action := e.actions.Front(); action != nil; action = action.Next() {
+		if ioAction, ok := action.Value.(IOAction); ok {
+			if dryRun {
+				logrus.Infof("DRYRUN: IO: %s", ioAction)
+			} else {
+				logrus.Infof("%s", ioAction)
+				err := ioAction.Perform()
+				if err != nil {
+					logrus.Errorf("Error: %s", err)
+					return err
+				}
+			}
+		} else {
+			logrus.Fatalf("Invalid IOAction: %s is not IOAction", ioAction)
+		}
+	}
+	return nil
 }
 
 func (e *IOEngine) Push(action IOAction) {
@@ -29,6 +48,7 @@ func (e *IOEngine) Push(action IOAction) {
 
 type IOAction interface {
 	Perform() error
+	String() string
 }
 
 // Move
@@ -41,6 +61,10 @@ func (r *Rename) Perform() error {
 	return os.Rename(r.from, r.to)
 }
 
+func (r *Rename) String() string {
+	return fmt.Sprintf("RENAME %s --> %s", r.from, r.to)
+}
+
 type Copy struct {
 	from string
 	to   string
@@ -50,12 +74,20 @@ func (c *Copy) Perform() error {
 	return CopyFile(c.from, c.to)
 }
 
+func (c *Copy) String() string {
+	return fmt.Sprintf("COPY   %s --> %s", c.from, c.to)
+}
+
 type Delete struct {
 	target string
 }
 
 func (d *Delete) Perform() error {
 	return os.Remove(d.target)
+}
+
+func (d *Delete) String() string {
+	return fmt.Sprintf("DELETE %s", d.target)
 }
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
