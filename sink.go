@@ -10,6 +10,7 @@ import (
 )
 
 const META_JSON_FILENAME = "meta.json"
+const META_JSON_TEMP_FILENAME = "meta.temp.json"
 
 type Sink struct {
 	Path string
@@ -80,17 +81,14 @@ func (s *Sink) createSinkDir(dirPath string) (*SinkDir, error) {
 	}
 	return &SinkDir{
 		CheckedTracks: make(map[string]bool),
-		Path:   dirPath,
-		Tracks: make(map[string]*TrackMeta),
+		Path:          dirPath,
+		Tracks:        make(map[string]*TrackMeta),
 	}, nil
 }
 
 func (s *SinkDir) copyFromLocal(track *Track, sinkPath string) []IOAction {
 	localPath := normalizeLocation(track.Location)
-	return []IOAction{&Copy{
-		from: localPath,
-		to:   sinkPath,
-	}}
+	return []IOAction{NewCopy(localPath, sinkPath, track)}
 }
 
 func (s *SinkDir) SinkTrack(track *Track, fileName string) []IOAction {
@@ -109,10 +107,7 @@ func (s *SinkDir) SinkTrack(track *Track, fileName string) []IOAction {
 		}
 		if isWritable(prevPath) {
 			logrus.Infof("-- RENAME: %s (%s -> %s)", track.Name, meta.FileName, fileName)
-			return []IOAction{&Rename{
-				from: prevPath,
-				to:   sinkPath,
-			}}
+			return []IOAction{NewRename(prevPath, sinkPath)}
 		} else {
 			logrus.Infof("-- COPY**: %s (Unable to find previous file: %s)", track.Name, meta.FileName)
 			return s.copyFromLocal(track, sinkPath)
@@ -135,9 +130,7 @@ func (s *SinkDir) TrashUncheckedTracks(lib *Library) []IOAction {
 			}
 			trashPath := path.Join(s.Path, trackMeta.FileName)
 			if isWritable(trashPath) {
-				ret = append(ret, &Delete{
-					target: trashPath,
-				})
+				ret = append(ret, NewDelete(trashPath))
 			} else {
 				logrus.Warnf("Trash failed: %s(ID: %s, pID: %s)", trackMeta.FileName, trackMeta.OriginID, trackMeta.OriginPersistentID)
 			}
@@ -146,7 +139,7 @@ func (s *SinkDir) TrashUncheckedTracks(lib *Library) []IOAction {
 	return ret
 }
 
-func (s *SinkDir) UpdateMeta(sinkResults []SinkResult) error {
+func (s *SinkDir) UpdateMeta(sinkResults []SinkResult) ([]IOAction, error) {
 	s.Tracks = make(map[string]*TrackMeta)
 	for _, result := range sinkResults {
 		trackId := strconv.Itoa(result.Track.TrackId)
@@ -157,13 +150,11 @@ func (s *SinkDir) UpdateMeta(sinkResults []SinkResult) error {
 		}
 	}
 	metaPath := path.Join(s.Path, META_JSON_FILENAME)
-	logrus.Infof("UpdateMetadata: %s", metaPath)
-	f, err := os.Create(metaPath)
+	data, err := json.Marshal(s)
 	if err != nil {
-		return err
+		return []IOAction{}, err
 	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	err = enc.Encode(s)
-	return nil
+	return ([]IOAction{
+		NewWriteFileAction(metaPath, path.Join(s.Path, META_JSON_TEMP_FILENAME), data),
+	}), nil
 }

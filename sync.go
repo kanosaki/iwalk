@@ -30,6 +30,7 @@ func startSync(libPath, targetDir string, playlists []string) error {
 
 func (c *SyncContext) Start() (err error) {
 	engine := NewIOEngine()
+	logrus.Infof("Reading iTunes library and checking walkman state...")
 	planners := make([]*Planner, 0, len(c.syncPlaylists))
 	for _, playlistName := range c.syncPlaylists {
 		sinkDir, err := c.sink.OpenSinkDir(playlistName, true)
@@ -44,16 +45,17 @@ func (c *SyncContext) Start() (err error) {
 		planner.Start(engine)
 		planners = append(planners, planner)
 	}
-	logrus.Infof("Commiting..")
-	err = engine.Commit()
+	logrus.Infof("Checking operation...")
+	proceed, err := engine.Check(c.sink.Path)
 	if err != nil {
 		return
 	}
-	for _, planner := range planners {
-		err = planner.UpdateMetadata()
+	if proceed {
+		err = engine.Run()
 		if err != nil {
-			logrus.Errorf("Failed to UpdateMetadata: %s", err)
+			return
 		}
+		logrus.Infof("Done.")
 	}
 	return
 }

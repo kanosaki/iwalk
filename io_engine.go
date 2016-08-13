@@ -3,14 +3,26 @@ package main
 import (
 	"container/list"
 	"fmt"
-	"io"
 	"os"
 	"github.com/Sirupsen/logrus"
+	"errors"
+	"gopkg.in/cheggaaa/pb.v1"
+	"time"
+	"path"
+	"io/ioutil"
 )
 
 type IOEngine struct {
-	actions *list.List
+	actions      *list.List
 	trashActions *list.List
+}
+
+type IOAction interface {
+	Perform() error
+	Finish() error
+	String() string
+	SizeDelta() int64
+	ProcessCost() int64
 }
 
 func NewIOEngine() *IOEngine {
@@ -19,15 +31,75 @@ func NewIOEngine() *IOEngine {
 	}
 }
 
-func (e *IOEngine) Commit() error {
+func (e *IOEngine) Check(targetPath string) (bool, error) {
+	if e.actions.Len() == 0 {
+		logrus.Infof("No actions: nothing todo")
+		fmt.Println("Everything up-to-date.")
+		return false, nil
+	}
+	var willConsume int64 = 0
+	for action := e.actions.Front(); action != nil; action = action.Next() {
+		if ioAction, ok := action.Value.(IOAction); ok {
+			willConsume += ioAction.SizeDelta()
+		} else {
+			logrus.Fatalf("Invalid IOAction: %s is not IOAction", ioAction)
+		}
+	}
+	stat, err := DiskUsage(targetPath)
+	if err != nil {
+		return false, err
+	}
+	fmt.Printf("Disk %s: Free %dMB(%d%%), will consume %dMB(%d%%)\n", targetPath, stat.Free / MiB, (stat.Free * 100) / stat.All, willConsume / MiB, uint64(willConsume * 100) / stat.All)
+	if int64(stat.All) < int64(stat.Free) + willConsume {
+		return false, errors.New("Capacity over! ")
+	}
+	return true, nil
+}
+
+func (e *IOEngine) Run() error {
+	var wholeCost int64 = 0
+	for action := e.actions.Front(); action != nil; action = action.Next() {
+		if ioAction, ok := action.Value.(IOAction); ok {
+			wholeCost += ioAction.ProcessCost()
+		} else {
+			logrus.Fatalf("Invalid IOAction: %s is not IOAction", ioAction)
+		}
+	}
+	bar := pb.New64(int64(wholeCost)).SetUnits(pb.U_BYTES)
+	bar.SetRefreshRate(500 * time.Millisecond)
+	bar.ShowTimeLeft = true
+	bar.ShowSpeed = true
+	bar.Start()
+
 	dryRun := *argDryRun
+	// Perform
 	for action := e.actions.Front(); action != nil; action = action.Next() {
 		if ioAction, ok := action.Value.(IOAction); ok {
 			if dryRun {
 				logrus.Infof("DRYRUN: IO: %s", ioAction)
 			} else {
-				logrus.Infof("%s", ioAction)
+				logrus.Debugf("%s", ioAction)
 				err := ioAction.Perform()
+				if err != nil {
+					logrus.Errorf("Error: %s", err)
+					return err
+				}
+				bar.Add64(ioAction.ProcessCost())
+			}
+		} else {
+			logrus.Fatalf("Invalid IOAction: %s is not IOAction", ioAction)
+		}
+	}
+	bar.Finish()
+	logrus.Infof("Finishing sync...")
+	// Finish
+	for action := e.actions.Front(); action != nil; action = action.Next() {
+		if ioAction, ok := action.Value.(IOAction); ok {
+			if dryRun {
+				logrus.Infof("DRYRUN: Finish: %s", ioAction)
+			} else {
+				logrus.Debugf("%s", ioAction)
+				err := ioAction.Finish()
 				if err != nil {
 					logrus.Errorf("Error: %s", err)
 					return err
@@ -41,15 +113,14 @@ func (e *IOEngine) Commit() error {
 }
 
 func (e *IOEngine) Push(action IOAction) {
-	e.actions.PushBack(action)
+	if action == nil {
+		logrus.Warnf("IOAction is nil!")
+	} else {
+		e.actions.PushBack(action)
+	}
 }
 
 // ----------------------------------
-
-type IOAction interface {
-	Perform() error
-	String() string
-}
 
 // Move
 type Rename struct {
@@ -57,7 +128,18 @@ type Rename struct {
 	to   string
 }
 
+func NewRename(from, to string) *Rename {
+	return &Rename{
+		from: from,
+		to: to,
+	}
+}
+
 func (r *Rename) Perform() error {
+	return nil
+}
+
+func (r *Rename) Finish() error {
 	return os.Rename(r.from, r.to)
 }
 
@@ -65,24 +147,99 @@ func (r *Rename) String() string {
 	return fmt.Sprintf("RENAME %s --> %s", r.from, r.to)
 }
 
+func (r *Rename) SizeDelta() int64 {
+	return 0
+}
+
+func (r *Rename) ProcessCost() int64 {
+	return 0
+}
+
 type Copy struct {
-	from string
-	to   string
+	from     string
+	to       string
+	size     int64
+	track    *Track
+	tempFile string
+}
+
+func NewCopy(from, to string, copyingTrack *Track) *Copy {
+	st, err := os.Stat(from)
+	if err != nil {
+		logrus.Errorf("Cannot access: %s", from)
+		return nil
+	}
+	tempFile := path.Join(path.Dir(to), fmt.Sprintf("%s.tmp", copyingTrack.PersistentId))
+	return &Copy{
+		from: from,
+		to: to,
+		tempFile: tempFile,
+		track: copyingTrack,
+		size: st.Size(),
+	}
 }
 
 func (c *Copy) Perform() error {
-	return CopyFile(c.from, c.to)
+	stat, err := os.Stat(c.tempFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// normal copy
+			return CopyFile(c.from, c.tempFile)
+		} else {
+			return err
+		}
+	} else {
+		// resume
+		if stat.Size() == c.size {
+			// ok
+			logrus.Debugf("Skipping: %s (temp: %s, size match)", c.to, c.tempFile)
+			return nil
+		} else {
+			// overwrite copy
+			logrus.Debugf("Overwrite: broken file %s (temp: %s)", c.to, c.tempFile)
+			return CopyFile(c.from, c.tempFile)
+		}
+	}
+}
+
+func (c *Copy) Finish() error {
+	return os.Rename(c.tempFile, c.to)
 }
 
 func (c *Copy) String() string {
 	return fmt.Sprintf("COPY   %s --> %s", c.from, c.to)
 }
 
+func (c *Copy) SizeDelta() int64 {
+	return c.size
+}
+
+func (c *Copy) ProcessCost() int64 {
+	return c.size
+}
+
 type Delete struct {
 	target string
+	size   int64
+}
+
+func NewDelete(target string) *Delete {
+	st, err := os.Stat(target)
+	if err != nil {
+		logrus.Errorf("Cannot access: %s", target)
+		return nil
+	}
+	return &Delete{
+		target: target,
+		size: st.Size(),
+	}
 }
 
 func (d *Delete) Perform() error {
+	return nil
+}
+
+func (d *Delete) Finish() error {
 	return os.Remove(d.target)
 }
 
@@ -90,62 +247,42 @@ func (d *Delete) String() string {
 	return fmt.Sprintf("DELETE %s", d.target)
 }
 
-// CopyFile copies a file from src to dst. If src and dst files exist, and are
-// the same, then return success. Otherise, attempt to create a hard link
-// between the two files. If that fail, copy the file contents from src to dst.
-func CopyFile(src, dst string) (err error) {
-	sfi, err := os.Stat(src)
-	if err != nil {
-		return
-	}
-	if !sfi.Mode().IsRegular() {
-		// cannot copy non-regular files (e.g., directories,
-		// symlinks, devices, etc.)
-		return fmt.Errorf("CopyFile: non-regular source file %s (%q)", sfi.Name(), sfi.Mode().String())
-	}
-	dfi, err := os.Stat(dst)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return
-		}
-	} else {
-		if !(dfi.Mode().IsRegular()) {
-			return fmt.Errorf("CopyFile: non-regular destination file %s (%q)", dfi.Name(), dfi.Mode().String())
-		}
-		if os.SameFile(sfi, dfi) {
-			return
-		}
-	}
-	//if err = os.Link(src, dst); err == nil {
-	//	return
-	//}
-	err = copyFileContents(src, dst)
-	return
+func (d *Delete) SizeDelta() int64 {
+	return -d.size
 }
 
-// copyFileContents copies the contents of the file named src to the file named
-// by dst. The file will be created if it does not already exist. If the
-// destination file exists, all it's contents will be replaced by the contents
-// of the source file.
-func copyFileContents(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return
+func (d *Delete) ProcessCost() int64 {
+	return 0
+}
+
+type WriteFileAction struct {
+	data       []byte
+	targetPath string
+	tempPath   string
+}
+
+func NewWriteFileAction(targetPath, tmpPath string, data []byte) *WriteFileAction {
+	return &WriteFileAction{
+		targetPath: targetPath,
+		tempPath: tmpPath,
+		data: data,
 	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return
-	}
-	defer func() {
-		cerr := out.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
-	}
-	err = out.Sync()
-	return
+}
+
+func (uma *WriteFileAction) Perform() error {
+	return ioutil.WriteFile(uma.tempPath, uma.data, 0644)
+}
+
+func (uma *WriteFileAction) Finish() error {
+	return os.Rename(uma.tempPath, uma.targetPath)
+}
+
+func (uma *WriteFileAction) String() string {
+	return fmt.Sprintf("WRITE  %s(%d KiB)", uma.targetPath, len(uma.data) / KiB)
+}
+func (uma *WriteFileAction) SizeDelta() int64 {
+	return int64(len(uma.data))
+}
+func (uma *WriteFileAction) ProcessCost() int64 {
+	return int64(len(uma.data))
 }

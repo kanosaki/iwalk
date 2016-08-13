@@ -68,7 +68,7 @@ func listDeviceCandidates() []string {
 		if isValidWalkmanDevice(devicePath) {
 			ret = append(ret, path.Join(devicePath, "MUSIC"))
 		}
-	SKIP_CANDIDATE:
+		SKIP_CANDIDATE:
 	}
 	return ret
 }
@@ -82,3 +82,30 @@ func isWritable(path string) bool {
 	err := syscall.Access(path, W_OK)
 	return err == nil
 }
+
+type DiskStatus struct {
+	All  uint64 `json:"all"`
+	Used uint64 `json:"used"`
+	Free uint64 `json:"free"`
+}
+
+// disk usage of path/disk
+func DiskUsage(path string) (disk DiskStatus, err error) {
+	fs := syscall.Statfs_t{}
+	err = syscall.Statfs(path, &fs)
+	if err != nil {
+		return
+	}
+	disk.All = fs.Blocks * uint64(fs.Bsize)
+	disk.Free = fs.Bfree * uint64(fs.Bsize)
+	disk.Used = disk.All - disk.Free
+	return
+}
+
+const (
+	Byte = 1
+	KiB = 1024 * Byte
+	MiB = 1024 * KiB
+	GiB = 1024 * MiB
+)
+

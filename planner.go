@@ -9,10 +9,9 @@ import (
 
 // Creates sync plan
 type Planner struct {
-	lib          *Library
-	playlist     *Playlist
-	sinkDir      *SinkDir
-	planResult   []SinkResult
+	lib      *Library
+	playlist *Playlist
+	sinkDir  *SinkDir
 }
 
 type SinkResult struct {
@@ -34,12 +33,16 @@ func (p *Planner) Start(engine *IOEngine) {
 	itemLen := len(p.playlist.PlaylistItems)
 	results := make([]SinkResult, 0)
 	if itemLen == 0 {
-		p.planResult = results
 		return
 	}
 	prefixLen := int(math.Ceil(math.Log10(float64(itemLen))))
 	skippedTracks := 0
+	copyAndRenameActions := make([]IOAction, 0)
 	for index, track := range p.playlist.Tracks(p.lib) {
+		if len(track.Location) == 0 {
+			logrus.Warnf("No File(iCloud): %s", track.Name)
+			continue
+		}
 		extension := filepath.Ext(track.Location)
 		// 0001 Track Name.m4a
 		// 0002 Track Name2.mp3
@@ -49,33 +52,36 @@ func (p *Planner) Start(engine *IOEngine) {
 		if len(acts) == 0 {
 			skippedTracks += 1
 		}
-		for _, act := range acts {
-			engine.Push(act)
-		}
+		copyAndRenameActions = append(copyAndRenameActions, acts...)
 		results = append(results, SinkResult{
 			Track:     track,
 			Filename:  newFileName,
 			Performed: acts,
 		})
 	}
-	for _, act := range p.sinkDir.TrashUncheckedTracks(p.lib) {
+	// Action order
+	// Trash -> Copy and Rename -> Update meta.json
+	trashUncheckedActions := p.sinkDir.TrashUncheckedTracks(p.lib)
+	if len(trashUncheckedActions) == 0 && skippedTracks == len(p.playlist.PlaylistItems) {
+		// nothing changed, skip
+		logrus.Debugf("Nothing changed: skipping %s", p.playlist.Name)
+		return
+	}
+	updateMetaActions, err := p.sinkDir.UpdateMeta(results)
+	if err != nil {
+		logrus.Fatalf("Failed to update metadata for %s", p.playlist.Name)
+	}
+	for _, act := range trashUncheckedActions {
+		engine.Push(act)
+	}
+	for _, act := range copyAndRenameActions {
+		engine.Push(act)
+	}
+	for _, act := range updateMetaActions {
 		engine.Push(act)
 	}
 	if skippedTracks > 0 {
 		logrus.Infof("SKIP Tracks: %d", skippedTracks)
 	}
-	p.planResult = results
 }
 
-func (p *Planner) UpdateMetadata() error {
-	if *argDryRun {
-		logrus.Infof("DRYRUN: Skipping UpdateMetadata")
-		return nil
-	} else {
-		err := p.sinkDir.UpdateMeta(p.planResult)
-		if err != nil {
-			logrus.Errorf("Faild to update metadata at %s: %s", p.sinkDir.Path, err)
-		}
-		return err
-	}
-}
