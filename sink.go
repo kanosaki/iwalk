@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"time"
 )
 
 const META_JSON_FILENAME = "meta.json"
@@ -25,9 +26,10 @@ type SinkDir struct {
 }
 
 type TrackMeta struct {
-	OriginID           string `json:"origin_id"`
-	OriginPersistentID string `json:"origin_persistent_id"`
-	FileName           string `json:"filename"`
+	OriginID           string    `json:"origin_id"`
+	OriginPersistentID string    `json:"origin_persistent_id"`
+	FileName           string    `json:"filename"`
+	ModifiedTime       time.Time `json:"modified_time"`
 }
 
 func NewSink(sinkPath string) (*Sink, error) {
@@ -86,9 +88,9 @@ func (s *Sink) createSinkDir(dirPath string) (*SinkDir, error) {
 	}, nil
 }
 
-func (s *SinkDir) copyFromLocal(track *Track, sinkPath string) []IOAction {
+func (s *SinkDir) copyFromLocal(track *Track, sinkPath string) IOAction {
 	localPath := normalizeLocation(track.Location)
-	return []IOAction{NewCopy(localPath, sinkPath, track)}
+	return NewCopy(localPath, sinkPath, track)
 }
 
 func (s *SinkDir) SinkTrack(track *Track, fileName string) []IOAction {
@@ -99,23 +101,39 @@ func (s *SinkDir) SinkTrack(track *Track, fileName string) []IOAction {
 		defer func() {
 			s.CheckedTracks[trackId] = true
 		}()
-		// perform move
 		prevPath := path.Join(s.Path, meta.FileName)
-		if prevPath == sinkPath {
-			logrus.Debugf("-- NOP   : %s", track.Name)
-			return []IOAction{} // nop
-		}
-		if isWritable(prevPath) {
-			logrus.Infof("-- RENAME: %s (%s -> %s)", track.Name, meta.FileName, fileName)
-			return []IOAction{NewRename(prevPath, sinkPath)}
+		if meta.ModifiedTime.Before(track.DateModified) {
+			// has update
+			if isWritable(prevPath) {
+				logrus.Infof("-- UPDATE: %s (%s -> %s)", track.Name, meta.FileName, fileName)
+				return []IOAction{
+					NewDelete(prevPath),
+					s.copyFromLocal(track, sinkPath),
+				}
+			} else {
+				logrus.Warnf("-- UPDATE: %s (could not delete old file %s)", track.Name, meta.FileName)
+				return []IOAction{
+					s.copyFromLocal(track, sinkPath),
+				}
+			}
 		} else {
-			logrus.Infof("-- COPY**: %s (Unable to find previous file: %s)", track.Name, meta.FileName)
-			return s.copyFromLocal(track, sinkPath)
+			if prevPath == sinkPath {
+				logrus.Debugf("-- NOP   : %s", track.Name)
+				return []IOAction{} // nop
+			}
+			// perform move
+			if isWritable(prevPath) {
+				logrus.Infof("-- RENAME: %s (%s -> %s)", track.Name, meta.FileName, fileName)
+				return []IOAction{NewRename(prevPath, sinkPath)}
+			} else {
+				logrus.Infof("-- COPY**: %s (Unable to find previous file: %s)", track.Name, meta.FileName)
+				return []IOAction{s.copyFromLocal(track, sinkPath)}
+			}
 		}
 	} else {
 		// perform copy
 		logrus.Infof("-- COPY  : %s", track.Name)
-		return s.copyFromLocal(track, sinkPath)
+		return []IOAction{s.copyFromLocal(track, sinkPath)}
 	}
 }
 
@@ -147,6 +165,7 @@ func (s *SinkDir) UpdateMeta(sinkResults []SinkResult) ([]IOAction, error) {
 			OriginID:           trackId,
 			OriginPersistentID: result.Track.PersistentId,
 			FileName:           result.Filename,
+			ModifiedTime:       result.Track.DateModified,
 		}
 	}
 	metaPath := path.Join(s.Path, META_JSON_FILENAME)
