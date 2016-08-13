@@ -2,14 +2,14 @@ package main
 
 import (
 	"container/list"
-	"fmt"
-	"os"
-	"github.com/Sirupsen/logrus"
 	"errors"
+	"fmt"
+	"github.com/Sirupsen/logrus"
 	"gopkg.in/cheggaaa/pb.v1"
-	"time"
-	"path"
 	"io/ioutil"
+	"os"
+	"path"
+	"time"
 )
 
 type IOEngine struct {
@@ -49,8 +49,8 @@ func (e *IOEngine) Check(targetPath string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	fmt.Printf("Disk %s: Free %dMB(%d%%), will consume %dMB(%d%%)\n", targetPath, stat.Free / MiB, (stat.Free * 100) / stat.All, willConsume / MiB, uint64(willConsume * 100) / stat.All)
-	if int64(stat.All) < int64(stat.Free) + willConsume {
+	fmt.Printf("Disk %s: Free %dMB(%d%%), will consume %dMB(%d%%)\n", targetPath, stat.Free/MiB, (stat.Free*100)/stat.All, willConsume/MiB, uint64(willConsume*100)/stat.All)
+	if int64(stat.All) < int64(stat.Free)+willConsume {
 		return false, errors.New("Capacity over! ")
 	}
 	return true, nil
@@ -131,7 +131,7 @@ type Rename struct {
 func NewRename(from, to string) *Rename {
 	return &Rename{
 		from: from,
-		to: to,
+		to:   to,
 	}
 }
 
@@ -171,11 +171,11 @@ func NewCopy(from, to string, copyingTrack *Track) *Copy {
 	}
 	tempFile := path.Join(path.Dir(to), fmt.Sprintf("%s.tmp", copyingTrack.PersistentId))
 	return &Copy{
-		from: from,
-		to: to,
+		from:     from,
+		to:       to,
 		tempFile: tempFile,
-		track: copyingTrack,
-		size: st.Size(),
+		track:    copyingTrack,
+		size:     st.Size(),
 	}
 }
 
@@ -231,7 +231,7 @@ func NewDelete(target string) *Delete {
 	}
 	return &Delete{
 		target: target,
-		size: st.Size(),
+		size:   st.Size(),
 	}
 }
 
@@ -264,8 +264,8 @@ type WriteFileAction struct {
 func NewWriteFileAction(targetPath, tmpPath string, data []byte) *WriteFileAction {
 	return &WriteFileAction{
 		targetPath: targetPath,
-		tempPath: tmpPath,
-		data: data,
+		tempPath:   tmpPath,
+		data:       data,
 	}
 }
 
@@ -278,7 +278,7 @@ func (uma *WriteFileAction) Finish() error {
 }
 
 func (uma *WriteFileAction) String() string {
-	return fmt.Sprintf("WRITE  %s(%d KiB)", uma.targetPath, len(uma.data) / KiB)
+	return fmt.Sprintf("WRITE  %s(%d KiB)", uma.targetPath, len(uma.data)/KiB)
 }
 func (uma *WriteFileAction) SizeDelta() int64 {
 	return int64(len(uma.data))

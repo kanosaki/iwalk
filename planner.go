@@ -9,9 +9,12 @@ import (
 
 // Creates sync plan
 type Planner struct {
-	lib      *Library
-	playlist *Playlist
-	sinkDir  *SinkDir
+	lib            *Library
+	playlist       *Playlist
+	sinkDir        *SinkDir
+	SkippedTracks  int
+	SyncingTracks  int
+	DeletingTracks int
 }
 
 type SinkResult struct {
@@ -47,7 +50,7 @@ func (p *Planner) Start(engine *IOEngine) {
 		// 0001 Track Name.m4a
 		// 0002 Track Name2.mp3
 		// ...
-		newFileName := fmt.Sprintf(fmt.Sprintf("%%0%dd %%s%%s", prefixLen), index + 1, escapeFilename(track.Name), extension)
+		newFileName := fmt.Sprintf(fmt.Sprintf("%%0%dd %%s%%s", prefixLen), index+1, escapeFilename(track.Name), extension)
 		acts := p.sinkDir.SinkTrack(&track, newFileName)
 		if len(acts) == 0 {
 			skippedTracks += 1
@@ -62,7 +65,10 @@ func (p *Planner) Start(engine *IOEngine) {
 	// Action order
 	// Trash -> Copy and Rename -> Update meta.json
 	trashUncheckedActions := p.sinkDir.TrashUncheckedTracks(p.lib)
-	if len(trashUncheckedActions) == 0 && skippedTracks == len(p.playlist.PlaylistItems) {
+	p.SkippedTracks = skippedTracks
+	p.SyncingTracks = len(p.playlist.PlaylistItems) - skippedTracks
+	p.DeletingTracks = len(trashUncheckedActions)
+	if p.DeletingTracks == 0 && p.SyncingTracks == 0 {
 		// nothing changed, skip
 		logrus.Debugf("Nothing changed: skipping %s", p.playlist.Name)
 		return
@@ -84,4 +90,3 @@ func (p *Planner) Start(engine *IOEngine) {
 		logrus.Infof("SKIP Tracks: %d", skippedTracks)
 	}
 }
-

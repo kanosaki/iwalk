@@ -68,7 +68,7 @@ func listDeviceCandidates() []string {
 		if isValidWalkmanDevice(devicePath) {
 			ret = append(ret, path.Join(devicePath, "MUSIC"))
 		}
-		SKIP_CANDIDATE:
+	SKIP_CANDIDATE:
 	}
 	return ret
 }
@@ -104,8 +104,7 @@ func DiskUsage(path string) (disk DiskStatus, err error) {
 
 const (
 	Byte = 1
-	KiB = 1024 * Byte
-	MiB = 1024 * KiB
-	GiB = 1024 * MiB
+	KiB  = 1024 * Byte
+	MiB  = 1024 * KiB
+	GiB  = 1024 * MiB
 )
-

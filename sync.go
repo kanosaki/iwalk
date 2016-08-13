@@ -46,11 +46,22 @@ func (c *SyncContext) Start() (err error) {
 		planners = append(planners, planner)
 	}
 	logrus.Infof("Checking operation...")
+
 	proceed, err := engine.Check(c.sink.Path)
 	if err != nil {
 		return
 	}
+	syncingCount := 0
+	skippingCount := 0
+	deletingCount := 0
+	for _, planner := range planners {
+		syncingCount += planner.SyncingTracks
+		skippingCount += planner.SkippedTracks
+		deletingCount += planner.DeletingTracks
+	}
+	logrus.Infof("Change: %d Delete: %d Skip: %d\n", syncingCount, deletingCount, skippingCount)
 	if proceed {
+		fmt.Printf("Change: %d Delete: %d Skip: %d\n", syncingCount, deletingCount, skippingCount)
 		err = engine.Run()
 		if err != nil {
 			return

@@ -1,9 +1,9 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	"io"
+	"os"
 )
 
 func isFileExists(path string) bool {
