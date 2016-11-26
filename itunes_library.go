@@ -21,6 +21,7 @@ type Library struct {
 	Tracks              map[string]Track
 	Playlists           []Playlist
 	PlaylistMap         map[string]Playlist
+	persistentMap       map[string]*Track
 }
 
 type Track struct {

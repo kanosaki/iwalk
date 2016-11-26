@@ -6,8 +6,8 @@ import (
 	"github.com/Sirupsen/logrus"
 	"os"
 	"path"
-	"strconv"
 	"time"
+	"strconv"
 )
 
 const META_JSON_FILENAME = "meta.json"
@@ -94,7 +94,7 @@ func (s *SinkDir) copyFromLocal(track *Track, sinkPath string) IOAction {
 }
 
 func (s *SinkDir) SinkTrack(track *Track, fileName string) []IOAction {
-	trackId := strconv.Itoa(track.TrackId)
+	trackId := track.PersistentId
 	meta, previouslyExists := s.Tracks[trackId]
 	sinkPath := path.Join(s.Path, fileName)
 	if previouslyExists {
@@ -160,9 +160,9 @@ func (s *SinkDir) TrashUncheckedTracks(lib *Library) []IOAction {
 func (s *SinkDir) UpdateMeta(sinkResults []SinkResult) ([]IOAction, error) {
 	s.Tracks = make(map[string]*TrackMeta)
 	for _, result := range sinkResults {
-		trackId := strconv.Itoa(result.Track.TrackId)
+		trackId := result.Track.PersistentId
 		s.Tracks[trackId] = &TrackMeta{
-			OriginID:           trackId,
+			OriginID:           strconv.Itoa(result.Track.TrackId),
 			OriginPersistentID: result.Track.PersistentId,
 			FileName:           result.Filename,
 			ModifiedTime:       result.Track.DateModified,
